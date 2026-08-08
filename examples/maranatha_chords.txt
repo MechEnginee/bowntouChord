@@ -1,0 +1,46 @@
+# 내가 소망하는 아버지 나라 (부제: MARANATHA) — 리드시트 코드 진행
+# 악보에 적힌 코드를 그대로 옮긴 것. (Bb장조, 4/4)
+# 형식:  "마디번호: 코드 [코드 ...]"   (한 마디에 여러 코드면 공백으로 나열)
+title: 내가 소망하는 아버지 나라 (MARANATHA)
+key: Bb major
+tempo: 72
+
+[Verse]
+2: Bb
+3: Cm7 Bb/D
+4: Eb F/Eb
+5: Bb/D Gm7
+6: Cm7 F
+7: Bb F/A
+8: Gm7 F Eb F
+9: Bb
+
+[Pre-Chorus]
+10: Eb
+11: F/Eb
+12: Bb/D
+13: Gm7
+14: Cm7
+15: Bb/D
+16: Eb
+17: F
+
+[Chorus]
+18: Bb
+19: F/A
+20: Gm7
+21: F Eb Bb/D
+22: Cm7
+23: Bb/D
+24: Eb
+25: F
+26: Bb
+27: F/A
+28: Gm7
+29: F Eb Bb/D
+
+[Ending]
+30: Cm7
+31: Bb/D
+32: Eb
+33: F Bb
