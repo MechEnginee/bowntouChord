@@ -108,6 +108,32 @@ tempo: 72
 
 ---
 
+## 박자에 맞춘 테너 (멜로디 리듬 따라가기)
+
+코드마다 온음표 한 개가 아니라, **멜로디와 같은 리듬**으로 테너를 찍고 싶을 때 사용합니다.
+테너는 코드 구성음만 쓰므로 멜로디 음정은 필요 없고 **리듬 + 코드**만 있으면 됩니다.
+
+```bash
+# 리듬만 옮긴 파일 + 코드 진행
+python -m satb.tenor_rhythm --rhythm examples/maranatha_rhythm.txt examples/maranatha_chords.txt -o out
+
+# 멜로디 MusicXML/MIDI 가 있으면 그걸로 바로 (리듬 자동)
+python -m satb.tenor_rhythm melody.musicxml chords.txt -o out
+```
+
+리듬 파일 형식 (`마디번호: 길이 ...`, 4분=1·8분=0.5·16분=0.25·붙점8분=0.75·2분=2, 쉼표는 앞에 `R`):
+
+```text
+key: Bb major
+tempo: 72
+2: 0.5 0.5 0.5 0.5 0.75 0.25 0.5 0.5   # 8분들 + 붙점8분·16분
+3: 1 2 R0.5 0.25 0.25                  # 4분, 2분, 8분쉼표, 16분×2
+```
+
+출력: 마디별 **테너 음(리듬 포함)** 표, `out_only.wav`(테너만) · `out_satb.wav`(4성부 합창) · MIDI.
+
+---
+
 ## 화성이 만들어지는 원리 (요약)
 
 1. **조성 결정** — `key:` 지정이 있으면 그대로, 없으면 `music21` 로 멜로디에서 자동 추정

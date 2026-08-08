@@ -83,6 +83,43 @@ def read_melody_measures(path: str) -> Tuple[List[MNote], int]:
     return notes, first_full_our_number
 
 
+def read_rhythm_measures(path: str) -> Tuple[List[MNote], str, float]:
+    """
+    '리듬 파일'을 읽는다.  각 줄: "마디번호: 길이 길이 ..."
+    길이는 4분음표=1 단위. 쉼표는 앞에 R (예: R0.5).
+    멜로디 음정은 없으므로 midi 는 음표=0(무음정), 쉼표=None 으로 표시.
+    반환: (음목록, 조성, 템포)
+    """
+    import re
+    key_name, tempo = "C major", 90.0
+    notes: List[MNote] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            low = s.lower()
+            if low.startswith("key:"):
+                key_name = s.split(":", 1)[1].strip(); continue
+            if low.startswith("tempo:"):
+                try:
+                    tempo = float(s.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+                continue
+            m = re.match(r"^(\d+)\s*:\s*(.+)$", s)
+            if not m:
+                continue
+            measure = int(m.group(1))
+            beat = 0.0
+            for tok in m.group(2).split():
+                is_rest = tok[0] in "Rr"
+                val = float(tok[1:] if is_rest else tok)
+                notes.append(MNote(measure, beat, val, None if is_rest else 0))
+                beat += val
+    return notes, key_name, tempo
+
+
 def build_chord_map(ls_path: str) -> Dict[int, List[str]]:
     """마디번호 -> 그 마디의 코드 심볼 목록(순서대로)."""
     ls = parse_leadsheet(ls_path)
@@ -176,6 +213,108 @@ def make_rhythmic_tenor(melody_path: str, chords_path: str):
     return harm, notes, cmap
 
 
+_BRANGE = (40, 60)   # 베이스
+_ARANGE = (55, 74)   # 알토
+_SRANGE = (60, 81)   # 소프라노(패드 상단)
+
+
+def _tone_above(chord: Chord, floor: int, lo: int, hi: int,
+                prev: Optional[int]) -> int:
+    cand = []
+    for i in chord.intervals:
+        pc = (chord.root_pc + i) % 12
+        for midi in _pcs_in_range(pc, lo, hi):
+            if midi >= floor:
+                cand.append(midi)
+    if not cand:
+        for i in chord.intervals:
+            pc = (chord.root_pc + i) % 12
+            cand += _pcs_in_range(pc, lo, hi)
+    if not cand:
+        return floor
+    return min(cand) if prev is None else min(cand, key=lambda m: abs(m - prev))
+
+
+def make_from_rhythm(rhythm_path: str, chords_path: str):
+    """리듬 파일 + 코드 → (4성부 화음+테너) Harmonization, (테너만) Harmonization."""
+    notes, key_name, tempo = read_rhythm_measures(rhythm_path)
+    cmap, _ls = build_chord_map(chords_path)
+
+    full = Harmonization(key_name=key_name, tempo_bpm=tempo)
+    tonly = Harmonization(key_name=key_name, tempo_bpm=tempo)
+    pt = pb = pa = ps = None
+    cur: Optional[Chord] = None
+    for nt in notes:
+        full.durations.append(nt.dur)
+        tonly.durations.append(nt.dur)
+        if nt.midi is None:   # 쉼표
+            for h in (full, tonly):
+                h.soprano.append(None); h.alto.append(None)
+                h.tenor.append(None); h.bass.append(None); h.chords.append(None)
+            continue
+        ch = chord_at(cmap, nt.measure, nt.beat) or cur
+        cur = ch or cur
+        if cur is None:       # 코드 없는 여린내기: 테너 쉼
+            for h in (full, tonly):
+                h.soprano.append(None); h.alto.append(None)
+                h.tenor.append(None); h.bass.append(None); h.chords.append(None)
+            continue
+        t = tenor_below(cur, None, pt); pt = t
+        b = _tone_above(cur, _BRANGE[0], *_BRANGE, pb); pb = b
+        # 베이스는 슬래시/근음을 우선
+        bb = min(_pcs_in_range(cur.bass_pc, *_BRANGE) or [b],
+                 key=lambda m: abs(m - (pb or 48)))
+        b = bb; pb = b
+        a = _tone_above(cur, t + 1, *_ARANGE, pa); pa = a
+        s = _tone_above(cur, a + 1, *_SRANGE, ps); ps = s
+        full.soprano.append(s); full.alto.append(a)
+        full.tenor.append(t); full.bass.append(b); full.chords.append(cur.symbol)
+        tonly.soprano.append(None); tonly.alto.append(None)
+        tonly.tenor.append(t); tonly.bass.append(None); tonly.chords.append(cur.symbol)
+    return full, tonly, notes, cmap
+
+
+def main_rhythm(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="satb.tenor_rhythm rhythm",
+        description="리듬 파일 + 코드로 박자에 맞춘 테너를 만듭니다.")
+    ap.add_argument("rhythm", help="리듬 파일 (마디번호: 길이 ...)")
+    ap.add_argument("chords", help="코드 진행 파일 (leadsheet 형식)")
+    ap.add_argument("-o", "--out", help="출력 접두어")
+    ap.add_argument("--no-wav", action="store_true")
+    args = ap.parse_args(argv)
+    for p in (args.rhythm, args.chords):
+        if not os.path.exists(p):
+            print(f"파일을 찾을 수 없습니다: {p}", file=sys.stderr); return 2
+
+    full, tonly, notes, _ = make_from_rhythm(args.rhythm, args.chords)
+    out = args.out or os.path.splitext(args.rhythm)[0] + "_tenor"
+
+    # 마디별 테너(리듬 포함) 표
+    print(f"\n박자에 맞춘 테너  (조성 {full.key_name}, 템포 {full.tempo_bpm:.0f})")
+    cur_m = None; line = []
+    for nt, t in zip(notes, tonly.tenor):
+        if nt.midi is None and t is None and nt.measure != cur_m:
+            pass
+        if nt.measure != cur_m:
+            if line: print("  m%-3d %s" % (cur_m, " ".join(line)))
+            line = []; cur_m = nt.measure
+        if t is None:
+            line.append(f"쉼({_dur_label(nt.dur)})")
+        else:
+            line.append(f"{midi_name(t)}({_dur_label(nt.dur)})")
+    if line: print("  m%-3d %s" % (cur_m, " ".join(line)))
+    print()
+
+    export_mod.write_midi(full, out + "_satb.mid"); print(f"4성부 MIDI: {out}_satb.mid")
+    export_mod.write_midi(tonly, out + "_only.mid"); print(f"테너 MIDI : {out}_only.mid")
+    if not args.no_wav:
+        render_wav(full, out + "_satb.wav"); print(f"4성부 소리: {out}_satb.wav")
+        render_wav(tonly, out + "_only.wav"); print(f"테너 소리 : {out}_only.wav")
+    print("\n완료! 🎵")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="satb.tenor_rhythm",
@@ -243,4 +382,11 @@ def _dur_label(ql: float) -> str:
 
 
 if __name__ == "__main__":
+    # 사용법:
+    #   python -m satb.tenor_rhythm 멜로디.musicxml 코드.txt        (멜로디 파일 사용)
+    #   python -m satb.tenor_rhythm --rhythm 리듬.txt 코드.txt      (리듬만 옮긴 파일 사용)
+    import sys as _sys
+    if "--rhythm" in _sys.argv:
+        _argv = [a for a in _sys.argv[1:] if a != "--rhythm"]
+        raise SystemExit(main_rhythm(_argv))
     raise SystemExit(main())
