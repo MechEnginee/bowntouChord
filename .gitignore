@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.wav
+*.mid
+*.midi
+!examples/*.mid
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
